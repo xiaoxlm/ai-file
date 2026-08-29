@@ -20,7 +20,6 @@
 │   ├── split/                   # 本地确定性空行切段
 │   └── tools/                   # Tool 抽象、注册表、read_file 与 finish
 ├── docs/                        # PRD、技术方案与项目决策记录
-├── AGENTS.md                    # 开发 Agent 必须遵守的项目规则
 ├── go.mod                       # Go 模块与依赖定义
 └── README.md                    # 项目说明与使用指南
 ```
