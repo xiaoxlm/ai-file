@@ -24,7 +24,7 @@
 | 决策 | 选择 | 原因 |
 |---|---|---|
 | 文件预检 | `app` 层在进入 Loop 前预检并切段 | 空文件无需调用 LLM；输入错误可稳定映射退出码 2 |
-| 空文件 | 直接输出 `段数: 0`、`无有效段落`，退出 0 | 不需要让模型调用 `finish([])`，减少无效成本 |
+| 空文件 | 配置校验通过后直接输出 `段数: 0`、`无有效段落`，退出 0 | 不需要让模型调用 `finish([])`，减少无效成本 |
 | LLM 实现 | 自有 DTO + `llm.Client`，OpenAI-compatible HTTP Adapter | 换同协议厂商只改配置；业务层无 SDK 耦合 |
 | 工具错误 | 作为 `error: ...` Observation 返回模型，非致命 Go error | 模型可修正参数并继续下一轮 |
 | HTTP 重试 | 仅 429、5xx、网络临时错误；最多 2 次重试（共 3 次请求） | 避免对鉴权/参数错误做无效重试 |
@@ -265,7 +265,7 @@ func (l *Loop) Run(ctx context.Context) (Result, error)
 1. `os.Stat`：不存在、不是普通文件 → 输入错误（exit 2）。
 2. 检查大小 ≤ `max_bytes`，否则 exit 2。
 3. 读取字节；发现 `0x00` 或 `utf8.Valid` 为 false → exit 2。
-4. 调用 `split.Paragraphs`。若 0 段，直接渲染空结果、exit 0。
+4. 调用 `split.Paragraphs`。若 0 段，直接渲染空结果、exit 0（CLI 已先完成 API Key 等配置校验）。
 5. 将绝对路径写入 Memory `goal_path`，进入 Agent Loop。
 
 预检只验证任务目标，不把文件正文预先加入 LLM Memory；LLM 必须通过 `read_file` 得到内容。
