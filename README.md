@@ -4,6 +4,27 @@
 
 核心实现包含 `Goal + LLM + ReAct Loop + Tools + Memory`，不依赖 Agent 框架、embedding 或向量数据库。
 
+## 目录结构
+
+```text
+.
+├── cmd/
+│   └── ai-file/                 # CLI 入口：解析参数、加载配置、映射退出码
+├── internal/
+│   ├── agent/                   # Goal、系统提示、ReAct Loop 与摘要结果渲染
+│   ├── app/                     # 应用编排：输入预检、依赖组装、stdout/stderr 输出
+│   ├── config/                  # YAML、环境变量、命令行参数的配置合并与校验
+│   ├── llm/                     # 厂家无关的 LLM 接口、DTO 与 Provider 工厂
+│   │   └── openaicompat/        # OpenAI-compatible Chat Completions HTTP Adapter
+│   ├── memory/                  # 单次运行的会话消息与 KV 工作记忆
+│   ├── split/                   # 本地确定性空行切段
+│   └── tools/                   # Tool 抽象、注册表、read_file 与 finish
+├── docs/                        # PRD、技术方案与项目决策记录
+├── AGENTS.md                    # 开发 Agent 必须遵守的项目规则
+├── go.mod                       # Go 模块与依赖定义
+└── README.md                    # 项目说明与使用指南
+```
+
 ## 要求
 
 - Go 1.27+

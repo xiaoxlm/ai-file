@@ -2,3 +2,4 @@
 .cursor/
 coverage.out
 go.sum
+AGENTS.md
