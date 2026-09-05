@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ai-file v1 架构",
+    "subtitle": "本地 CLI 通过 ReAct 工具调用，将单个 UTF-8 文本文件转为逐段摘要",
+    "output": "ai-file-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/xiaoxlm/ai-file.git",
+      "revision": "1a2a73d8c1d08e362339d64fc008cfbc83f1ebc4"
+    },
+    "views": [
+      {"id": "entry", "label": "启动与装配", "focus": ["cli", "config", "app", "factory"], "note": "命令行解析配置；app 预检文件并装配运行期依赖。"},
+      {"id": "react", "label": "ReAct 主循环", "focus": ["app", "loop", "memory", "registry", "client"], "note": "Loop 仅通过 LLM、工具执行器与 Memory 的抽象接口协作。"},
+      {"id": "safe-read", "label": "受限文件读取", "focus": ["app", "registry", "readfile", "split", "memory"], "note": "read_file 仅允许读取预检后写入 goal_path 的同一规范化路径。"},
+      {"id": "provider", "label": "模型适配", "focus": ["factory", "client", "api"], "note": "Factory 创建 OpenAI-compatible HTTP 客户端；DeepSeek 是默认配置。"}
+    ]
+  },
+  "components": [
+    {"id": "cli", "type": "frontend", "label": "ai-file CLI", "sublabel": "cmd/ai-file", "tag": "flags + exit code", "pos": [40, 280], "size": [142, 68], "sources": [{"path": "cmd/ai-file/main.go", "line": 14, "end_line": 60}]},
+    {"id": "config", "type": "security", "label": "配置加载", "sublabel": "YAML / env / flags", "tag": "API key 校验", "pos": [250, 110], "size": [150, 68], "sources": [{"path": "internal/config/load.go", "line": 31, "end_line": 56}]},
+    {"id": "app", "type": "backend", "label": "应用组合根", "sublabel": "预检、装配、输出", "tag": "internal/app", "pos": [250, 280], "size": [150, 68], "sources": [{"path": "internal/app/run.go", "line": 54, "end_line": 129}]},
+    {"id": "loop", "type": "backend", "label": "Agent ReAct Loop", "sublabel": "Think → Act → Observe", "tag": "接口驱动", "pos": [480, 280], "size": [158, 68], "sources": [{"path": "internal/agent/loop.go", "line": 35, "end_line": 103}]},
+    {"id": "memory", "type": "database", "label": "进程内 Memory", "sublabel": "messages + KV", "tag": "无持久化", "pos": [480, 105], "size": [158, 68], "sources": [{"path": "internal/memory/inmem.go", "line": 16, "end_line": 73}]},
+    {"id": "registry", "type": "backend", "label": "Tool Registry", "sublabel": "List / Execute / Completion", "tag": "可扩展工具", "pos": [705, 280], "size": [165, 68], "sources": [{"path": "internal/tools/registry.go", "line": 11, "end_line": 80}]},
+    {"id": "readfile", "type": "security", "label": "read_file Tool", "sublabel": "路径限制 + 段落 Observation", "tag": "只读", "pos": [705, 105], "size": [165, 68], "sources": [{"path": "internal/tools/read_file.go", "line": 53, "end_line": 108}]},
+    {"id": "finish", "type": "backend", "label": "finish Tool", "sublabel": "校验并提交摘要项", "pos": [705, 445], "size": [165, 62], "sources": [{"path": "internal/tools/finish.go", "line": 46, "end_line": 88}]},
+    {"id": "split", "type": "backend", "label": "确定性切段", "sublabel": "按空行 split.Paragraphs", "pos": [940, 105], "size": [152, 62], "sources": [{"path": "internal/split/split.go", "line": 11, "end_line": 25}]},
+    {"id": "factory", "type": "backend", "label": "LLM Factory", "sublabel": "Provider 预设", "pos": [480, 445], "size": [158, 62], "sources": [{"path": "internal/llm/factory.go", "line": 12, "end_line": 39}]},
+    {"id": "client", "type": "cloud", "label": "OpenAI-compatible Client", "sublabel": "Chat Completions + retry", "tag": "HTTP adapter", "pos": [705, 600], "size": [165, 68], "sources": [{"path": "internal/llm/openaicompat/client.go", "line": 33, "end_line": 99}]},
+    {"id": "api", "type": "external", "label": "LLM Provider API", "sublabel": "DeepSeek 默认；兼容服务可替换", "pos": [940, 600], "size": [175, 68], "sources": [{"path": "internal/config/defaults.go", "line": 3, "end_line": 13}]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "本地 ai-file 进程", "wraps": ["cli", "config", "app", "loop", "memory", "registry", "readfile", "finish", "split", "factory", "client"], "pad": 28},
+    {"kind": "security-group", "label": "文件访问边界：仅 goal_path", "wraps": ["readfile", "split"], "pad": 16}
+  ],
+  "connections": [
+    {"id": "cli-config", "from": "cli", "to": "config"},
+    {"id": "cli-app", "from": "cli", "to": "app", "variant": "emphasis"},
+    {"id": "config-app", "from": "config", "to": "app", "fromSide": "bottom", "toSide": "top"},
+    {"id": "app-loop", "from": "app", "to": "loop", "variant": "emphasis"},
+    {"id": "app-memory", "from": "app", "to": "memory", "fromSide": "top", "toSide": "left"},
+    {"id": "app-registry", "from": "app", "to": "registry", "fromSide": "right", "toSide": "left", "via": [[430, 314], [430, 80], [670, 80], [670, 314]]},
+    {"id": "app-factory", "from": "app", "to": "factory", "fromSide": "bottom", "toSide": "left"},
+    {"id": "loop-memory", "from": "loop", "to": "memory", "fromSide": "top", "toSide": "bottom"},
+    {"id": "loop-registry", "from": "loop", "to": "registry", "variant": "emphasis"},
+    {"id": "loop-client", "from": "loop", "to": "client", "fromSide": "bottom", "toSide": "left", "variant": "emphasis"},
+    {"id": "registry-read", "from": "registry", "to": "readfile", "fromSide": "top", "toSide": "bottom"},
+    {"id": "registry-finish", "from": "registry", "to": "finish", "fromSide": "bottom", "toSide": "top"},
+    {"id": "read-split", "from": "readfile", "to": "split", "variant": "security"},
+    {"id": "factory-client", "from": "factory", "to": "client"},
+    {"id": "client-api", "from": "client", "to": "api", "variant": "security"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "主路径", "items": ["CLI → app → ReAct Loop → OpenAI-compatible API", "Loop 通过抽象接口与 LLM、Tools、Memory 协作"]},
+    {"dot": "emerald", "title": "工具与摘要", "items": ["read_file 将确定性切段后的文本作为唯一正文 Observation", "finish 依段数校验后向 Registry 提交结构化结果"]},
+    {"dot": "rose", "title": "安全与边界", "items": ["app 先检查普通文件、大小、NUL 与 UTF-8", "read_file 仅允许规范化后等于 goal_path 的文件", "API Key 仅配置给 HTTP Client，不进入 Memory 或输出"]}
+  ]
+}

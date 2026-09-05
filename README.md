@@ -41,7 +41,7 @@
 ## 构建
 
 ```bash
-go build -o ai-file ./cmd/ai-file
+go build -o ai-agent ./cmd/ai-file
 ```
 
 ## 使用用例
@@ -50,7 +50,7 @@ go build -o ai-file ./cmd/ai-file
 
 ```bash
 export AI_FILE_API_KEY='你的 DeepSeek API Key'
-./ai-file docs/first-project-desc.md
+./ai-agent docs/first-project-desc.md
 ```
 
 示例输出：
@@ -69,13 +69,13 @@ export AI_FILE_API_KEY='你的 DeepSeek API Key'
 `-verbose` 将 Thought、Tool Action 与 Observation 写到 stderr；正常结果仍只写 stdout。
 
 ```bash
-./ai-file -verbose docs/first-project-desc.md
+./ai-agent -verbose docs/first-project-desc.md
 ```
 
 ### 3. 同时输出到终端和结果文件
 
 ```bash
-./ai-file -out summary.txt docs/first-project-desc.md
+./ai-agent -out summary.txt docs/first-project-desc.md
 ```
 
 只有分析完整成功后才会写入 `summary.txt`，源文件不可作为 `-out` 目标。
@@ -84,7 +84,7 @@ export AI_FILE_API_KEY='你的 DeepSeek API Key'
 
 ```bash
 export AI_FILE_API_KEY='你的服务 API Key'
-./ai-file \
+./ai-agent \
   -provider custom \
   -base-url https://example.com/v1 \
   -model your-model-name \
@@ -95,7 +95,7 @@ export AI_FILE_API_KEY='你的服务 API Key'
 
 ```bash
 export AI_FILE_API_KEY='你的 OpenAI API Key'
-./ai-file -provider openai -model gpt-4o-mini docs/first-project-desc.md
+./ai-agent -provider openai -model gpt-4o-mini docs/first-project-desc.md
 ```
 
 ## 配置
