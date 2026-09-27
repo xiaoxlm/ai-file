@@ -4,12 +4,6 @@
 
 **来源**：[PRD](prd/prdv1.0.0.md) 与 [技术方案](technical-design-v1.0.0.md)。后两者是完整依据；本文件仅保留高频决策索引。
 
-## 当前阶段
-
-- 已完成：产品需求与技术方案。
-- 未开始：任何 Go 业务代码、`go.mod`、CLI 或 LLM 联调。
-- 下一步：收到实施指令后，按技术方案第 12 节分阶段开发。
-
 ## 产品边界
 
 - 本地单二进制 CLI，一次只分析一个 UTF-8 文本文件。
@@ -30,9 +24,9 @@
 ## LLM 与配置
 
 - 抽象：自有 `llm.Client` / `ChatRequest` / `ChatResponse` / `ToolSpec`，禁止厂家 SDK 类型越过 `internal/llm`。
-- v1 协议：OpenAI-compatible `POST /chat/completions` 与 tool calling。
+- v1 仅实现 DeepSeek Client：`POST /chat/completions` 与 tool calling。
 - 默认：`provider=deepseek`，`base_url=https://api.deepseek.com`，`model=deepseek-v4-pro`。
-- 同协议切换厂家只修改 `provider`、`base_url`、`model`、`api_key` 配置。
+- v1 配置仅接受 `provider=deepseek`；新增厂家须在 `internal/llm` 新建专用 Client 并在 Factory 注册。
 - DeepSeek thinking/reasoning 字段 v1 不发送。
 - 配置优先级：CLI flags > `AI_FILE_*` 环境变量 > `./ai-file.yaml` > `$HOME/.ai-file.yaml` > 默认。
 - API Key 不设 CLI flag；优先使用 `AI_FILE_API_KEY`。

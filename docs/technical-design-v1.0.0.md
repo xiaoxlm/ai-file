@@ -15,7 +15,7 @@
 - Go 1.22+，单二进制、无 CGO。
 - 核心链路必须是 `Goal → LLM → Tool → Observation → Memory → LLM` 的 ReAct Loop。
 - 工具、记忆、LLM 相互隔离；Loop 不得硬编码 `read_file`、DeepSeek 或任何厂商协议。
-- v1 只支持 OpenAI 兼容 Chat Completions 的 tool calling；默认 DeepSeek `deepseek-v4-pro`。
+- v1 仅支持 DeepSeek `deepseek-v4-pro` 的 Chat Completions tool calling。
 - 仅进程内 Memory；不使用 embedding、向量检索或外部数据库。
 - 除 YAML 解析外优先使用 Go 标准库；唯一允许的第三方依赖为 `gopkg.in/yaml.v3`。
 
@@ -25,7 +25,7 @@
 |---|---|---|
 | 文件预检 | `app` 层在进入 Loop 前预检并切段 | 空文件无需调用 LLM；输入错误可稳定映射退出码 2 |
 | 空文件 | 配置校验通过后直接输出 `段数: 0`、`无有效段落`，退出 0 | 不需要让模型调用 `finish([])`，减少无效成本 |
-| LLM 实现 | 自有 DTO + `llm.Client`，OpenAI-compatible HTTP Adapter | 换同协议厂商只改配置；业务层无 SDK 耦合 |
+| LLM 实现 | 自有 DTO + `llm.Client`，DeepSeek 专用 HTTP Client | 业务层无 SDK 耦合；新增厂家仅扩展 `llm` |
 | 工具错误 | 作为 `error: ...` Observation 返回模型，非致命 Go error | 模型可修正参数并继续下一轮 |
 | HTTP 重试 | 仅 429、5xx、网络临时错误；最多 2 次重试（共 3 次请求） | 避免对鉴权/参数错误做无效重试 |
 | `-out` | 仅成功生成完整结果后写入 | 与「失败不输出半成品」保持一致 |
@@ -43,14 +43,14 @@ flowchart TD
     app --> registry[internal/tools Registry]
     app --> memory[internal/memory InMemory]
     app --> factory[internal/llm Factory]
-    factory --> compat[OpenAICompatible HTTP Adapter]
+    factory --> deepseek[DeepSeek Client]
     agent --> client[llm.Client]
     agent --> executor[tools.Executor]
     agent --> store[memory.Memory]
     registry --> readFile[read_file]
     registry --> finish[finish]
     readFile --> split[internal/split]
-    compat --> api[DeepSeek or compatible API]
+    deepseek --> api[DeepSeek API]
 ```
 
 ### 2.1 依赖规则
@@ -67,7 +67,7 @@ split       → 无业务依赖
 
 禁止依赖：
 
-- `agent`、`tools`、`memory` 不得导入 `llm/openaicompat` 或任何厂商 SDK。
+- `agent`、`tools`、`memory` 不得导入任何厂家 Client 或厂家 SDK。
 - `tools` 不得导入 `agent`。
 - 任意 `internal` 包不得导入 `cmd`。
 
@@ -93,7 +93,7 @@ split       → 无业务依赖
 │   │   ├── types.go
 │   │   ├── client.go
 │   │   ├── factory.go
-│   │   └── openaicompat/client.go
+│   │   └── deepseek.go
 │   ├── memory/
 │   │   ├── memory.go
 │   │   └── inmem.go
@@ -448,17 +448,15 @@ step=1 observation="path: ...\nparagraph_count: 2..."
 
 ---
 
-## 7. LLM Provider 与 HTTP Adapter
+## 7. LLM Provider 与 HTTP Client
 
 ### 7.1 配置后的 Provider 预设
 
 | Provider | Base URL | 默认模型 | 协议 |
 |---|---|---|---|
 | `deepseek`（默认） | `https://api.deepseek.com` | `deepseek-v4-pro` | OpenAI-compatible |
-| `openai` | `https://api.openai.com/v1` | 必填 | OpenAI-compatible |
-| `custom` | 必填 | 必填 | OpenAI-compatible |
 
-`llm.New(config)` 先应用 Provider 预设，再创建一个 `openaicompat.Client`。三个 Provider 共用同一个 HTTP 实现，不创建名字不同但行为重复的 Adapter。
+`llm.New(config)` 根据 Provider 创建厂家专用 Client。v1 只接受 `deepseek`，并创建 `deepseekClient`；未知 Provider 在启动时失败。
 
 端点构造规则：`strings.TrimRight(baseURL, "/") + "/chat/completions"`。因此 DeepSeek 预设不补 `/v1`，OpenAI 预设自带 `/v1`，两者均可正确生成请求 URL。
 
@@ -487,7 +485,7 @@ step=1 observation="path: ...\nparagraph_count: 2..."
 }
 ```
 
-Adapter 只负责 wire format 的编码/解码，转换为 `llm.ChatResponse` 后立即丢弃厂商响应类型。DeepSeek 的 `thinking`、`reasoning_effort` 等非通用字段 v1 不发送；避免模型思考模式与 ReAct 控制流混杂。
+DeepSeek Client 只负责 wire format 的编码/解码，转换为 `llm.ChatResponse` 后立即丢弃厂商响应类型。DeepSeek 的 `thinking`、`reasoning_effort` 等非通用字段 v1 不发送；避免模型思考模式与 ReAct 控制流混杂。
 
 ### 7.3 超时、重试和错误
 
@@ -507,7 +505,7 @@ Adapter 只负责 wire format 的编码/解码，转换为 `llm.ChatResponse` �
 优先级由低到高：
 
 ```text
-内置默认值 → Provider 预设 → ./ai-file.yaml
+内置默认值 → ./ai-file.yaml
 → $HOME/.ai-file.yaml（仅当前者不存在） → AI_FILE_* 环境变量 → CLI flags
 ```
 
@@ -529,7 +527,7 @@ CLI：
 ai-file [-provider value] [-base-url value] [-model value] [-verbose] [-out path] <文件路径>
 ```
 
-`api_key` 不提供 flag，避免被 shell history 暴露。`AI_FILE_API_KEY` 或本地 YAML 必须提供。配置文件不存在不是错误；YAML 解析失败、未知 Provider、无 Key、`custom` 缺 URL/模型都是启动错误。
+`api_key` 不提供 flag，避免被 shell history 暴露。`AI_FILE_API_KEY` 或本地 YAML 必须提供。配置文件不存在不是错误；YAML 解析失败、非 `deepseek` Provider 或无 Key 都是启动错误。
 
 ### 8.2 退出码
 
@@ -591,7 +589,7 @@ ai-file [-provider value] [-base-url value] [-model value] [-verbose] [-out path
 | `tools` 单测 | Registry 重名/未知；路径逃逸；NUL；截断；`finish` 条数 | `t.TempDir()` + fake Memory |
 | `agent` 单测 | read→finish；finish 失败后继续；无 tool_call 纠偏；超轮次 | 脚本化 fake `llm.Client` / fake `Executor` |
 | `config` 单测 | 默认、Provider、YAML/env/flag 覆盖、非法配置 | `t.Setenv` + 临时 YAML |
-| `openaicompat` 合约测试 | URL、请求 JSON、Bearer 头、tool calls、重试、错误脱敏 | `httptest.Server` |
+| `deepseek` 合约测试 | URL、请求 JSON、Bearer 头、tool calls、重试、错误脱敏 | `httptest.Server` |
 | `app` 集成测试 | stdout/stderr、空文件短路、退出码、`-out` | fake Client + 临时文件 |
 
 ### 11.1 验收映射
@@ -605,7 +603,7 @@ ai-file [-provider value] [-base-url value] [-model value] [-verbose] [-out path
 | AC6 | Loop fake 响应先给错误 `finish`，再给正确 `finish` |
 | AC7 | Registry 未注册 `read_file` 时，Loop 无法走金路径 |
 | AC8 | `agent` 测试只导入 `llm.Client`，不依赖 Adapter |
-| AC9 | `custom` 配置实例化同一 OpenAI-compatible Client |
+| AC9 | `provider=custom` 配置在校验时失败，提示仅支持 `deepseek` |
 | AC10 | factory 单测断言 DeepSeek URL 与 `deepseek-v4-pro` |
 
 建议最终检查命令：
@@ -640,8 +638,8 @@ go run ./cmd/ai-file ./docs/first-project-desc.md
 
 ### 阶段 3：LLM 适配
 
-- 实现 Factory 与 OpenAI-compatible HTTP Client，完成 `httptest` 协议测试、超时和重试。
-- 完成后：DeepSeek 预设与 custom 配置均通过同一 Adapter。
+- 实现 Factory 与 DeepSeek HTTP Client，完成 `httptest` 协议测试、超时和重试。
+- 完成后：DeepSeek 默认与显式地址、模型覆盖均可用。
 
 ### 阶段 4：端到端验证
 

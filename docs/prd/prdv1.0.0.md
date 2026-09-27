@@ -34,7 +34,7 @@ v1 要交付一个**可本地运行的轻量 Agent**：给定文件路径，读�
 3. 更换 LLM 厂家/模型或新增 Tool 时，**不必修改** Agent Loop 的控制流代码（只改配置、Provider 注册或适配器）。
 4. 进程内 Memory 不依赖 Qdrant / Milvus / 任何外部向量库。
 5. `go.mod` 中不出现 LangChain、云厂商 Agent SDK 等 Agent 框架依赖。
-6. 切换到另一家 **OpenAI 兼容** 接口时，只改 `provider` / `base_url` / `model` / `api_key`，不改业务代码。
+6. 新增另一家 LLM 时，只新增该厂家的 `llm.Client` 实现并在 Factory 注册，不改 Agent Loop。
 
 ### 2.3 非目标（v1 明确不做）
 
@@ -44,7 +44,7 @@ v1 要交付一个**可本地运行的轻量 Agent**：给定文件路径，读�
 - 二进制文件、扫描件 OCR、音视频
 - 流式打字机 UI、对话式多轮闲聊（v1 是「一次任务跑完」）
 - 自动写入原文件或生成新文件（默认只打 stdout；见 6.4）
-- 多线协议并存（Anthropic Messages 等）；v1 只做 OpenAI 兼容传输，换厂家靠配置预设
+- 多厂家 Provider；v1 仅实现 DeepSeek，后续厂家按独立 Client 扩展
 
 ---
 
@@ -66,7 +66,7 @@ v1 要交付一个**可本地运行的轻量 Agent**：给定文件路径，读�
 - Agent 内核：Goal 注入、ReAct Loop、Tool 调用、Memory 读写、终止条件
 - 内置 Tool：`read_file`（必选）；`finish`（提交最终答案，见 7.3）
 - Memory：进程内实现（对话轨迹 + KV 工作记忆）
-- LLM：厂家无关的 `Client` 接口 + Provider 预设；v1 默认 DeepSeek `deepseek-v4-pro`，传输层用 OpenAI 兼容 Chat Completions（含 tool calling）
+- LLM：厂家无关的 `Client` 接口 + Provider Factory；v1 仅实现 DeepSeek `deepseek-v4-pro`（Chat Completions + tool calling）
 - 配置：环境变量 + 可选本地配置文件
 - 结构化输出：逐段核心要点列表
 
@@ -90,13 +90,13 @@ v1 要交付一个**可本地运行的轻量 Agent**：给定文件路径，读�
 | A6 | 输出语言 | 与源文件主要语言一致；中英混排时用中文 |
 | A7 | 切分位置 | **本地确定性切分**（读入后由代码切段），不把切段交给 LLM，避免段数漂移 |
 | A8 | Agent 如何分析 | 切段后把带序号的段列表交给 LLM；LLM 只做提炼，不负责发现文件、不负责切段 |
-| A9 | LLM 协议 | Agent 只认自有 `llm.Client`，**不认**任何厂家 SDK 类型。v1 传输层：OpenAI 兼容 Chat Completions + **tool calling**（不用纯文本伪 JSON 作为主路径） |
+| A9 | LLM 协议 | Agent 只认自有 `llm.Client`，**不认**任何厂家 SDK 类型。v1 的 DeepSeek Client 使用 Chat Completions + **tool calling**（不用纯文本伪 JSON 作为主路径） |
 | A10 | 框架 / SDK | 禁止 Agent 框架。LLM 调用用自有 HTTP 客户端或薄封装；**禁止**把 OpenAI/DeepSeek SDK 类型泄漏进 `agent` / `tools` / `memory` |
 | A11 | Memory | 仅内存；进程退出即清空；无持久化、无向量 |
 | A12 | 默认输出 | stdout 为用户结果；诊断走 stderr |
 | A13 | 失败策略 | 文件不存在 / 超限 / LLM 失败 / 超过最大轮次 → 非 0 退出，stderr 说明原因，stdout 不输出半成品列表 |
 | A14 | 默认厂家 | Provider=`deepseek`，Base URL=`https://api.deepseek.com`，Model=`deepseek-v4-pro` |
-| A15 | 换厂家 | 同一协议内（OpenAI 兼容）只改配置；非 OpenAI 协议（如 Anthropic Messages）v1 不做，但接口预留，后续只加 Adapter |
+| A15 | 换厂家 | v1 仅接受 `provider=deepseek`；后续厂家通过新增独立 Client 并注册到 Factory 支持，Agent Loop 无需改动 |
 
 ---
 
@@ -150,13 +150,13 @@ N. <要点>
 
 可选配置文件：`./ai-file.yaml` 或 `$HOME/.ai-file.yaml`（后者仅当前者不存在）。字段与上表对应，snake_case。
 
-**换厂家（v1，同一协议）**：改 `provider`（吃预设）或显式覆盖 `base_url` + `model` + `api_key`。示例：
+**v1 Provider**：仅支持 `deepseek`。可显式覆盖 `base_url`、`model` 和 `api_key`；其他 Provider 配置会在启动时失败。
 
 ```yaml
-# 切到另一家 OpenAI 兼容接口，不必改代码
-provider: openai          # 或 custom
-base_url: https://api.openai.com/v1
-model: gpt-4o-mini
+# 覆盖 DeepSeek 配置
+provider: deepseek
+base_url: https://api.deepseek.com
+model: deepseek-v4-pro
 api_key: "..."            # 也可用环境变量，禁止把 key 写入仓库
 ```
 
@@ -281,21 +281,16 @@ paragraphs:
 agent.Loop  ──调用──►  llm.Client（自有类型，厂家无关）
                           │
                           ▼
-                    llm.Provider 工厂（按 name 选 Adapter）
+                    llm.Provider 工厂（按 name 选 Client）
                           │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-         deepseek      openai       custom
-         Adapter      Adapter      Adapter
-              └───────────┬───────────┘
                           ▼
-              v1 仅实现：OpenAI 兼容 HTTP
-              POST /chat/completions + tools
+                    deepseek Client
+             v1：POST /chat/completions + tools
 ```
 
 - `llm.Client`：Loop 唯一依赖。方法语义是「一轮对话补全」，不是「调用 DeepSeek」。
 - `ChatRequest` / `ChatResponse`：项目自有结构（messages、tools、tool_calls、content）。**不得**出现 `openai.ChatCompletionXxx` 或 DeepSeek SDK 类型。
-- `Provider`：配置名（`deepseek` / `openai` / `custom`）→ 默认 `base_url`、默认 `model`、鉴权头。厂家特有字段只能留在 Adapter 内，通过可选 `extra` 透传，Loop 不可读。
+- `Provider`：配置名由 Factory 映射到厂家专用 Client。v1 仅注册 `deepseek`；厂家特有 wire format 与字段只能留在 Client 内，Loop 不可读。
 
 #### 7.5.2 `Client` 最小接口
 
@@ -319,15 +314,12 @@ ChatResponse:
 
 | Provider | 默认 Base URL | 默认 Model | 鉴权 |
 |----------|---------------|------------|------|
-| `deepseek`（默认） | `https://api.deepseek.com` | `deepseek-v4-pro` | `Authorization: Bearer <api_key>` |
-| `openai` | `https://api.openai.com/v1` | 无默认，必须显式配 `model` | 同上 |
-| `custom` | 无默认，必须显式配 `base_url` 与 `model` | — | 同上 |
+| `deepseek`（默认且唯一支持） | `https://api.deepseek.com` | `deepseek-v4-pro` | `Authorization: Bearer <api_key>` |
 
 说明：
 
-- v1 **只实现一种线协议**：OpenAI 兼容 Chat Completions + tool calling。DeepSeek 官方即此协议，故默认厂家用 DeepSeek Adapter（实质是带预设的同一 HTTP 实现）。
-- `openai` / `custom` 与 `deepseek` 共用同一 Adapter 代码路径，差别只在预设与配置；这样切通义、Moonshot、本地 vLLM 等兼容接口时无需新代码。
-- Anthropic Messages 等非兼容协议：**v1 不做**；以后新增 `anthropic` Adapter 实现同一个 `Client` 即可。
+- v1 仅实现 DeepSeek Client，其 wire protocol 为 Chat Completions + tool calling。
+- 后续新增任意厂家（包括同协议厂家）都新建对应 Client，实现同一 `Client` 接口并注册到 Factory。
 - DeepSeek 的 `thinking` / `reasoning_effort` 等厂家字段：**不进入** `ChatRequest`。v1 默认不开启（避免与 ReAct Loop 双重思考）。若以后要开，只加在 deepseek Adapter 的可选配置里。
 
 #### 7.5.4 行为与失败
@@ -354,7 +346,7 @@ cmd/ai-file          → 解析 flag、组装依赖、退出码
 internal/config      → 配置加载
 internal/agent       → Goal + Loop（只依赖接口）
 internal/llm         → Client 接口 + ChatRequest/Response + Provider 工厂
-                       + OpenAI 兼容 HTTP Adapter（deepseek/openai/custom 预设）
+                       + 厂家专用 Client（v1 为 DeepSeek）
 internal/tools       → Tool 接口 + Registry + read_file/finish
 internal/memory      → Memory 接口 + 内存实现
 internal/split       → 空行切段（纯函数，供 read_file 调用，可单测）
@@ -407,8 +399,8 @@ internal/split       → 空行切段（纯函数，供 read_file 调用，可�
 | AC5 | `-verbose` | stderr 含 `read_file` 与 `finish` 的 Action 记录 |
 | AC6 | 模型返回错误段数的 `finish` | Observation 报错，Loop 继续；最终成功或超轮次失败 |
 | AC7 | 启动时不注册 `read_file`（测试） | 无法完成金路径，证明业务读文件不在 Loop 内硬编码 |
-| AC8 | Loop 单测只注入 fake Client | 不出现 `deepseek` / `openai` 字符串依赖 |
-| AC9 | 配置 `provider=custom` + 另一套 base_url/model | 仍走同一 Adapter，Loop 代码零改动 |
+| AC8 | Loop 单测只注入 fake Client | 不出现任何厂商字符串依赖 |
+| AC9 | 配置 `provider=openai` 或 `custom` | 配置校验失败，提示仅支持 `deepseek` |
 | AC10 | 默认配置不改 | 请求发往 `https://api.deepseek.com`，`model=deepseek-v4-pro` |
 
 ---

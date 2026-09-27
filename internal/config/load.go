@@ -233,30 +233,15 @@ func mergeFlags(cfg *Config, opts LoadOptions, explicit *fieldFlags) {
 
 func validate(cfg Config, explicit fieldFlags) error {
 	if _, ok := knownProviders[cfg.Provider]; !ok {
-		names := []string{ProviderDeepSeek, ProviderOpenAI, ProviderCustom}
 		return fmt.Errorf(
 			"unknown provider %q; supported: %s",
 			cfg.Provider,
-			strings.Join(names, ", "),
+			ProviderDeepSeek,
 		)
 	}
 
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return fmt.Errorf("api_key is required")
-	}
-
-	switch cfg.Provider {
-	case ProviderOpenAI:
-		if !explicit.model {
-			return fmt.Errorf("model is required for provider openai")
-		}
-	case ProviderCustom:
-		if !explicit.baseURL {
-			return fmt.Errorf("base_url is required for provider custom")
-		}
-		if !explicit.model {
-			return fmt.Errorf("model is required for provider custom")
-		}
 	}
 
 	if cfg.MaxSteps <= 0 {

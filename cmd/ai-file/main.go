@@ -23,8 +23,8 @@ func run(
 ) int {
 	flags := flag.NewFlagSet("ai-file", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	provider := flags.String("provider", "", "LLM provider: deepseek, openai, custom")
-	baseURL := flags.String("base-url", "", "OpenAI-compatible API base URL")
+	provider := flags.String("provider", "", "LLM provider: deepseek")
+	baseURL := flags.String("base-url", "", "DeepSeek API base URL")
 	model := flags.String("model", "", "LLM model name")
 	verbose := flags.Bool("verbose", false, "print agent steps to stderr")
 	outPath := flags.String("out", "", "also write the complete result to this file")

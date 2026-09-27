@@ -14,8 +14,7 @@
 │   ├── agent/                   # Goal、系统提示、ReAct Loop 与摘要结果渲染
 │   ├── app/                     # 应用编排：输入预检、依赖组装、stdout/stderr 输出
 │   ├── config/                  # YAML、环境变量、命令行参数的配置合并与校验
-│   ├── llm/                     # 厂家无关的 LLM 接口、DTO 与 Provider 工厂
-│   │   └── openaicompat/        # OpenAI-compatible Chat Completions HTTP Adapter
+│   ├── llm/                     # LLM 接口、DTO、工厂及厂家专用 Client（v1 为 DeepSeek）
 │   ├── memory/                  # 单次运行的会话消息与 KV 工作记忆
 │   ├── split/                   # 本地确定性空行切段
 │   └── tools/                   # Tool 抽象、注册表、read_file 与 finish
@@ -27,7 +26,7 @@
 ## 要求
 
 - Go 1.27+
-- 一个支持 OpenAI-compatible Chat Completions tool calling 的模型服务
+- DeepSeek API Key
 - API Key（仅通过环境变量或本地配置文件提供，不要提交到仓库）
 
 默认模型服务：
@@ -80,30 +79,24 @@ export AI_FILE_API_KEY='你的 DeepSeek API Key'
 
 只有分析完整成功后才会写入 `summary.txt`，源文件不可作为 `-out` 目标。
 
-### 4. 切换到另一家 OpenAI-compatible 服务
+### 4. 覆盖 DeepSeek 地址或模型
 
 ```bash
-export AI_FILE_API_KEY='你的服务 API Key'
+export AI_FILE_API_KEY='你的 DeepSeek API Key'
 ./ai-agent \
-  -provider custom \
-  -base-url https://example.com/v1 \
-  -model your-model-name \
+  -base-url https://api.deepseek.com \
+  -model deepseek-v4-pro \
   docs/first-project-desc.md
 ```
 
-`openai` Provider 会预设 `https://api.openai.com/v1`，但必须显式指定模型：
-
-```bash
-export AI_FILE_API_KEY='你的 OpenAI API Key'
-./ai-agent -provider openai -model gpt-4o-mini docs/first-project-desc.md
-```
+v1 仅支持 `deepseek` Provider。后续新增厂家时，由对应厂家 Client 实现同一 `llm.Client` 接口，无需修改 Agent Loop。
 
 ## 配置
 
 配置优先级（从低到高）：
 
 ```text
-内置默认值 → Provider 预设 → ./ai-file.yaml
+内置默认值 → ./ai-file.yaml
 → $HOME/.ai-file.yaml（仅当前者不存在）→ AI_FILE_* 环境变量 → CLI flags
 ```
 
@@ -128,9 +121,9 @@ export AI_FILE_API_KEY='你的 API Key'
 
 | 变量 | 说明 |
 |---|---|
-| `AI_FILE_PROVIDER` | `deepseek`、`openai` 或 `custom` |
+| `AI_FILE_PROVIDER` | `deepseek`（v1 唯一支持值） |
 | `AI_FILE_API_KEY` | API Key，必填 |
-| `AI_FILE_BASE_URL` | OpenAI-compatible API Base URL |
+| `AI_FILE_BASE_URL` | DeepSeek API Base URL |
 | `AI_FILE_MODEL` | 模型名 |
 | `AI_FILE_MAX_STEPS` | 最大 ReAct 轮次，默认 `8` |
 | `AI_FILE_MAX_BYTES` | 最大文件字节数，默认 `524288` |

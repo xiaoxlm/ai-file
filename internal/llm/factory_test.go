@@ -12,66 +12,45 @@ import (
 	"github.com/xiaoxlm/ai-file/internal/config"
 )
 
-func TestNewAppliesProviderPresetsAndUsesOneAdapter(t *testing.T) {
+func TestNewDeepSeekDefaults(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name            string
-		cfg             config.Config
-		expectedBaseURL string
-		expectedModel   string
-	}{
-		{
-			name: "deepseek defaults",
-			cfg: config.Config{
-				Provider: config.ProviderDeepSeek,
-				APIKey:   "key",
-			},
-			expectedBaseURL: config.DefaultDeepSeekBaseURL,
-			expectedModel:   config.DefaultDeepSeekModel,
-		},
-		{
-			name: "openai default base url",
-			cfg: config.Config{
-				Provider: config.ProviderOpenAI,
-				APIKey:   "key",
-				Model:    "gpt-test",
-			},
-			expectedBaseURL: config.DefaultOpenAIBaseURL,
-			expectedModel:   "gpt-test",
-		},
-		{
-			name: "custom settings",
-			cfg: config.Config{
-				Provider: config.ProviderCustom,
-				APIKey:   "key",
-				BaseURL:  "https://compatible.example/v1",
-				Model:    "custom-model",
-			},
-			expectedBaseURL: "https://compatible.example/v1",
-			expectedModel:   "custom-model",
-		},
+	client, err := New(config.Config{
+		Provider: config.ProviderDeepSeek,
+		APIKey:   "key",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, ok := client.(*deepseekClient); !ok {
+		t.Fatalf("New() type = %T, want *deepseekClient", client)
+	}
+}
+
+func TestNewDeepSeekExplicitOverrides(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer server.Close()
+
+	client, err := New(config.Config{
+		Provider: config.ProviderDeepSeek,
+		APIKey:   "key",
+		BaseURL:  server.URL,
+		Model:    "override-model",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			client, err := New(tt.cfg)
-			if err != nil {
-				t.Fatalf("New() error = %v", err)
-			}
-			adapter, ok := client.(*openAICompatibleClient)
-			if !ok {
-				t.Fatalf("New() type = %T, want *openAICompatibleClient", client)
-			}
-			if adapter.baseURL != tt.expectedBaseURL {
-				t.Errorf("baseURL = %q, want %q", adapter.baseURL, tt.expectedBaseURL)
-			}
-			if adapter.defaultModel != tt.expectedModel {
-				t.Errorf("defaultModel = %q, want %q", adapter.defaultModel, tt.expectedModel)
-			}
-		})
+	response, err := client.Chat(t.Context(), ChatRequest{})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Content != "ok" {
+		t.Errorf("Content = %q, want ok", response.Content)
 	}
 }
 
@@ -89,35 +68,18 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 			errorText: "unknown provider",
 		},
 		{
+			name: "openai provider",
+			cfg: config.Config{
+				Provider: "openai",
+				APIKey:   "key",
+				Model:    "gpt-test",
+			},
+			errorText: "supported: deepseek",
+		},
+		{
 			name:      "missing api key",
 			cfg:       config.Config{Provider: config.ProviderDeepSeek},
 			errorText: "api_key is required",
-		},
-		{
-			name: "openai missing model",
-			cfg: config.Config{
-				Provider: config.ProviderOpenAI,
-				APIKey:   "key",
-			},
-			errorText: "model is required",
-		},
-		{
-			name: "custom missing base url",
-			cfg: config.Config{
-				Provider: config.ProviderCustom,
-				APIKey:   "key",
-				Model:    "model",
-			},
-			errorText: "base_url is required",
-		},
-		{
-			name: "custom missing model",
-			cfg: config.Config{
-				Provider: config.ProviderCustom,
-				APIKey:   "key",
-				BaseURL:  "https://example.invalid",
-			},
-			errorText: "model is required",
 		},
 	}
 
@@ -136,7 +98,7 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestNewCustomMapsLLMDTOs(t *testing.T) {
+func TestNewDeepSeekChatMapsDTOs(t *testing.T) {
 	t.Parallel()
 
 	var gotBody map[string]any
@@ -161,7 +123,7 @@ func TestNewCustomMapsLLMDTOs(t *testing.T) {
 	defer server.Close()
 
 	client, err := New(config.Config{
-		Provider: config.ProviderCustom,
+		Provider: config.ProviderDeepSeek,
 		APIKey:   "key",
 		BaseURL:  server.URL,
 		Model:    "configured-model",
@@ -201,11 +163,11 @@ func TestNewCustomMapsLLMDTOs(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleClientSatisfiesClient(t *testing.T) {
+func TestDeepSeekClientSatisfiesClient(t *testing.T) {
 	t.Parallel()
 
-	var _ Client = (*openAICompatibleClient)(nil)
+	var _ Client = (*deepseekClient)(nil)
 	var _ interface {
 		Chat(context.Context, ChatRequest) (ChatResponse, error)
-	} = (*openAICompatibleClient)(nil)
+	} = (*deepseekClient)(nil)
 }

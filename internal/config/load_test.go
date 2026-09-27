@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xiaoxlm/ai-file/internal/config"
@@ -52,10 +53,10 @@ func TestLoad_YAMLSnakeCase(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "ai-file.yaml")
 	writeFile(t, cfgPath, `
-provider: openai
+provider: deepseek
 api_key: yaml-key
 base_url: https://example.com/v1
-model: gpt-4o-mini
+model: deepseek-custom
 max_steps: 10
 max_bytes: 1024
 max_para_chars: 500
@@ -68,8 +69,8 @@ max_para_chars: 500
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Provider != "openai" {
-		t.Errorf("Provider = %q, want openai", cfg.Provider)
+	if cfg.Provider != "deepseek" {
+		t.Errorf("Provider = %q, want deepseek", cfg.Provider)
 	}
 	if cfg.APIKey != "yaml-key" {
 		t.Errorf("APIKey = %q, want yaml-key", cfg.APIKey)
@@ -77,8 +78,8 @@ max_para_chars: 500
 	if cfg.BaseURL != "https://example.com/v1" {
 		t.Errorf("BaseURL = %q, want https://example.com/v1", cfg.BaseURL)
 	}
-	if cfg.Model != "gpt-4o-mini" {
-		t.Errorf("Model = %q, want gpt-4o-mini", cfg.Model)
+	if cfg.Model != "deepseek-custom" {
+		t.Errorf("Model = %q, want deepseek-custom", cfg.Model)
 	}
 	if cfg.MaxSteps != 10 {
 		t.Errorf("MaxSteps = %d, want 10", cfg.MaxSteps)
@@ -106,7 +107,6 @@ max_steps: 8
 	cfg, err := config.Load(config.LoadOptions{
 		ConfigPath: cfgPath,
 		LookupEnv: envLookup(t, map[string]string{
-			"AI_FILE_PROVIDER":  "openai",
 			"AI_FILE_API_KEY":   "env-key",
 			"AI_FILE_BASE_URL":  "https://env.example/v1",
 			"AI_FILE_MODEL":     "env-model",
@@ -117,8 +117,8 @@ max_steps: 8
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Provider != "openai" {
-		t.Errorf("Provider = %q, want openai", cfg.Provider)
+	if cfg.Provider != "deepseek" {
+		t.Errorf("Provider = %q, want deepseek", cfg.Provider)
 	}
 	if cfg.APIKey != "env-key" {
 		t.Errorf("APIKey = %q, want env-key", cfg.APIKey)
@@ -145,7 +145,7 @@ api_key: yaml-key
 model: deepseek-v4-pro
 `)
 
-	provider := "custom"
+	provider := "deepseek"
 	baseURL := "https://flag.example/v1"
 	model := "flag-model"
 	maxSteps := 15
@@ -170,8 +170,8 @@ model: deepseek-v4-pro
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Provider != "custom" {
-		t.Errorf("Provider = %q, want custom", cfg.Provider)
+	if cfg.Provider != "deepseek" {
+		t.Errorf("Provider = %q, want deepseek", cfg.Provider)
 	}
 	if cfg.APIKey != "env-key" {
 		t.Errorf("APIKey = %q, want env-key", cfg.APIKey)
@@ -266,6 +266,41 @@ func TestLoad_UnknownProvider(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() error = nil, want unknown provider error")
 	}
+	if !strings.Contains(err.Error(), "supported: deepseek") {
+		t.Errorf("Load() error = %q, want containing supported: deepseek", err)
+	}
+}
+
+func TestLoad_RejectsNonDeepSeekProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		provider string
+	}{
+		{name: "openai", provider: "openai"},
+		{name: "custom", provider: "custom"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := tt.provider
+			_, err := config.Load(config.LoadOptions{
+				LookupEnv: envLookup(t, map[string]string{
+					"AI_FILE_API_KEY": "test-key",
+				}),
+				Provider: &provider,
+			})
+			if err == nil {
+				t.Fatalf("Load() error = nil, want unknown provider for %q", tt.provider)
+			}
+			if !strings.Contains(err.Error(), "supported: deepseek") {
+				t.Errorf("Load() error = %q, want containing supported: deepseek", err)
+			}
+		})
+	}
 }
 
 func TestLoad_MissingAPIKey(t *testing.T) {
@@ -327,75 +362,6 @@ max_para_chars: 0
 			}
 		})
 	}
-}
-
-func TestLoad_OpenAIRequiresModel(t *testing.T) {
-	t.Parallel()
-
-	provider := "openai"
-	_, err := config.Load(config.LoadOptions{
-		LookupEnv: envLookup(t, map[string]string{
-			"AI_FILE_API_KEY": "test-key",
-		}),
-		Provider: &provider,
-	})
-	if err == nil {
-		t.Fatal("Load() error = nil, want missing model error")
-	}
-}
-
-func TestLoad_OpenAIPresetBaseURL(t *testing.T) {
-	t.Parallel()
-
-	provider := "openai"
-	model := "gpt-4o-mini"
-	cfg, err := config.Load(config.LoadOptions{
-		LookupEnv: envLookup(t, map[string]string{
-			"AI_FILE_API_KEY": "test-key",
-		}),
-		Provider: &provider,
-		Model:    &model,
-	})
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-
-	if cfg.BaseURL != "https://api.openai.com/v1" {
-		t.Errorf("BaseURL = %q, want https://api.openai.com/v1", cfg.BaseURL)
-	}
-}
-
-func TestLoad_CustomRequiresBaseURLAndModel(t *testing.T) {
-	t.Parallel()
-
-	provider := "custom"
-	apiKey := "test-key"
-
-	t.Run("missing base_url", func(t *testing.T) {
-		t.Parallel()
-		model := "m"
-		_, err := config.Load(config.LoadOptions{
-			LookupEnv: envLookup(t, map[string]string{"AI_FILE_API_KEY": apiKey}),
-			Provider:  &provider,
-			Model:     &model,
-		})
-		if err == nil {
-			t.Fatal("Load() error = nil, want missing base_url error")
-		}
-	})
-
-	t.Run("missing model", func(t *testing.T) {
-		t.Parallel()
-		baseURL := "https://custom.example/v1"
-		_, err := config.Load(config.LoadOptions{
-			LookupEnv: envLookup(t, map[string]string{"AI_FILE_API_KEY": apiKey}),
-			Provider:  &provider,
-			BaseURL:   &baseURL,
-		})
-		if err == nil {
-			t.Fatal("Load() error = nil, want missing model error")
-		}
-	})
 }
 
 func TestLoad_MissingYAMLNotError(t *testing.T) {
